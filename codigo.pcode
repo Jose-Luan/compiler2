@@ -1,0 +1,7 @@
+lda #0
+ldc 0
+sto
+lda #0
+ldc 1
+sto
+stp
