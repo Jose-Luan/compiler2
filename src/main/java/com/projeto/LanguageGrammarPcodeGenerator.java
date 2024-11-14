@@ -32,18 +32,17 @@ public class LanguageGrammarPcodeGenerator extends LanguageGrammarBaseVisitor<St
     @Override
     public String visitVarDeclaration(LanguageGrammarParser.VarDeclarationContext ctx) {
         StringBuilder pcode = new StringBuilder();
-        pcode.append("lda #").append(currentAddress).append("\n");
-
+    
         if (ctx.expression() != null) {
+            pcode.append("lda #").append(currentAddress).append("\n");
             pcode.append(visit(ctx.expression()));
-        } else {
-            pcode.append("ldc 0\n");
+            pcode.append("sto\n");
         }
-
-        pcode.append("sto\n");
+    
         currentAddress++;
         return pcode.toString();
     }
+    
 
     @Override
     public String visitArithExpression(LanguageGrammarParser.ArithExpressionContext ctx) {
@@ -135,47 +134,51 @@ public class LanguageGrammarPcodeGenerator extends LanguageGrammarBaseVisitor<St
     @Override
     public String visitAtom(LanguageGrammarParser.AtomContext ctx) {
         StringBuilder pcode = new StringBuilder();
-
+    
+        if (ctx.MINUS() != null && ctx.NUMBER() != null) {
+            pcode.append("ldc ").append(ctx.NUMBER().getText()).append("\n");
+            pcode.append("neg\n");
+            return pcode.toString();
+        }
+        
         if (ctx.NUMBER() != null) {
             return "ldc " + ctx.NUMBER().getText() + "\n";
         }
+        
         if (ctx.ID() != null) {
             int address = symbolTable.getAddress(ctx.ID().getText());
             return "lod #" + address + "\n";
         }
+        
         if (ctx.arithExpression() != null) {
             return visit(ctx.arithExpression());
         }
-        if (ctx.MINUS() != null && ctx.atom() != null) {
-            pcode.append(visit(ctx.atom()));
-            pcode.append("neg\n");
-            return pcode.toString();
-        }
+        
         if (ctx.TRUE() != null) {
             return "ldc true\n";
         }
+        
         if (ctx.FALSE() != null) {
             return "ldc false\n";
         }
-
+    
         return "";
     }
+    
 
     @Override
     public String visitIfStatement(LanguageGrammarParser.IfStatementContext ctx) {
-        String endLabel = generateLabel();
-        String elseLabel = generateLabel();
         StringBuilder pcode = new StringBuilder();
-
+        int label1 = labelCounter++;
+        
         pcode.append(visit(ctx.condition()));
-        pcode.append("fjp ").append(elseLabel).append("\n");
+        pcode.append("fjp L").append(label1).append("\n");
         pcode.append(visit(ctx.block()));
-        pcode.append("ujp ").append(endLabel).append("\n");
-        pcode.append(elseLabel).append(":\n");
-        pcode.append(endLabel).append(":\n");
-
+        pcode.append("L").append(label1).append(":\n");
+        
         return pcode.toString();
     }
+    
 
     @Override
     public String visitInputStatement(LanguageGrammarParser.InputStatementContext ctx) {
@@ -206,19 +209,20 @@ public class LanguageGrammarPcodeGenerator extends LanguageGrammarBaseVisitor<St
 
     @Override
     public String visitWhileStatement(LanguageGrammarParser.WhileStatementContext ctx) {
-        String startLabel = generateLabel();
-        String endLabel = generateLabel();
         StringBuilder pcode = new StringBuilder();
-
-        pcode.append(startLabel).append(":\n");
+        int startLabel = labelCounter++;
+        int endLabel = labelCounter++;
+        
+        pcode.append("L").append(startLabel).append(":\n");
         pcode.append(visit(ctx.condition()));
-        pcode.append("fjp ").append(endLabel).append("\n");
+        pcode.append("fjp L").append(endLabel).append("\n");
         pcode.append(visit(ctx.block()));
-        pcode.append("ujp ").append(startLabel).append("\n");
-        pcode.append(endLabel).append(":\n");
-
+        pcode.append("ujp L").append(startLabel).append("\n");
+        pcode.append("L").append(endLabel).append(":\n");
+        
         return pcode.toString();
     }
+    
 
     @Override
     public String visitCondition(LanguageGrammarParser.ConditionContext ctx) {
@@ -237,37 +241,34 @@ public class LanguageGrammarPcodeGenerator extends LanguageGrammarBaseVisitor<St
     @Override
     public String visitCompareCondition(LanguageGrammarParser.CompareConditionContext ctx) {
         StringBuilder pcode = new StringBuilder();
-
+    
         if (ctx.condition() != null) {
             return visit(ctx.condition());
         }
-
+    
+        if (ctx.TRUE() != null) {
+            return "ldc true\n";
+        }
+    
+        if (ctx.FALSE() != null) {
+            return "ldc false\n";
+        }
+    
         pcode.append(visit(ctx.arithExpression(0)));
         pcode.append(visit(ctx.arithExpression(1)));
-
+    
         switch (ctx.comparisonOp().getText()) {
-            case "<":
-                pcode.append("let\n");
-                break;
-            case "<=":
-                pcode.append("lte\n");
-                break;
-            case ">":
-                pcode.append("grt\n");
-                break;
-            case ">=":
-                pcode.append("gte\n");
-                break;
-            case "==":
-                pcode.append("equ\n");
-                break;
-            case "!=":
-                pcode.append("neq\n");
-                break;
+            case "<": pcode.append("let\n"); break;
+            case "<=": pcode.append("lte\n"); break;
+            case ">": pcode.append("grt\n"); break;
+            case ">=": pcode.append("gte\n"); break;
+            case "==": pcode.append("equ\n"); break;
+            case "!=": pcode.append("neq\n"); break;
         }
-
+    
         return pcode.toString();
     }
+    
 
     @Override
     public String visitBlock(LanguageGrammarParser.BlockContext ctx) {
@@ -280,7 +281,4 @@ public class LanguageGrammarPcodeGenerator extends LanguageGrammarBaseVisitor<St
         return pcode.toString();
     }
 
-    private String generateLabel() {
-        return "L" + (labelCounter++);
-    }
 }

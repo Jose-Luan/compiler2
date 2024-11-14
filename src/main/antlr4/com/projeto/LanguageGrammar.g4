@@ -29,10 +29,9 @@ term            : factor ((MULT | DIV) factor)*;
 
 factor          : atom (EXP factor)?;
 
-atom            : NUMBER
+atom            : MINUS? NUMBER
                 | ID
                 | LPAREN arithExpression RPAREN
-                | MINUS atom
                 | TRUE
                 | FALSE
                 ;
@@ -42,7 +41,9 @@ condition       : andCondition (OR andCondition)*;
 andCondition    : compareCondition (AND compareCondition)*;
 
 compareCondition: arithExpression comparisonOp arithExpression 
-                | LPAREN condition RPAREN; 
+                | LPAREN condition RPAREN
+                | TRUE 
+                | FALSE;  
 
 comparisonOp    : LT | LE | GT | GE | EQUALS | NOT_EQUALS;
 

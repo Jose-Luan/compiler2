@@ -195,10 +195,14 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
 
     @Override
     public Object visitAtom(LanguageGrammarParser.AtomContext ctx) {
-        if (ctx.NUMBER() != null) {
-            return ctx.NUMBER().getText().contains(".") ? "float" : "integer";
+        if (ctx.MINUS() != null && ctx.NUMBER() != null) {
+            return "number";
         }
-
+    
+        if (ctx.NUMBER() != null) {
+            return "number";
+        }
+    
         if (ctx.ID() != null) {
             String identifier = ctx.ID().getText();
             if (!semanticUtils.symbolTable.exists(identifier)) {
@@ -207,26 +211,18 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
             }
             return semanticUtils.getVariableType(identifier);
         }
-
-        if (ctx.TRUE() != null || ctx.FALSE() != null) {
-            return "boolean";
-        }
-
+    
         if (ctx.arithExpression() != null) {
             return visit(ctx.arithExpression());
         }
-
-        if (ctx.MINUS() != null) {
-            Object atomType = visit(ctx.atom());
-            if (!isNumeric(atomType.toString())) {
-                throw new LanguageGrammarSemanticUtils.SemanticException(
-                        "Unary minus can only be applied to numeric types.");
-            }
-            return atomType;
+    
+        if (ctx.TRUE() != null || ctx.FALSE() != null) {
+            return "boolean";
         }
-
+    
         return "unknown";
     }
+    
 
     private void validateNumericOperation(String operator) {
         if (!currentType.equals("number")) {
@@ -259,14 +255,50 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
 
     @Override
     public Object visitCompareCondition(LanguageGrammarParser.CompareConditionContext ctx) {
-        String leftType = getArithExpressionType(ctx.arithExpression(0));
+        if (ctx.condition() != null) {
+            return visit(ctx.condition());
+        }
 
-        if (ctx.comparisonOp() != null) {
-            String rightType = getArithExpressionType(ctx.arithExpression(1));
-            validateComparison(leftType, rightType, ctx.comparisonOp().getText());
+        if (ctx.TRUE() != null || ctx.FALSE() != null) {
+            return "boolean";
+        }
+
+        if (ctx.arithExpression() != null) {
+            Object type1 = visit(ctx.arithExpression(0));
+            Object type2 = visit(ctx.arithExpression(1));
+
+            if (!type1.equals(type2)) {
+                throw new LanguageGrammarSemanticUtils.SemanticException(
+                        "Type mismatch in comparison: " + type1 + " and " + type2);
+            }
+            return "boolean";
         }
 
         return "boolean";
+    }
+
+    @Override
+    public Object visitArithExpression(LanguageGrammarParser.ArithExpressionContext ctx) {
+        if (ctx.STRING_LITERAL() != null) {
+            if (ctx.arithExpression() != null) {
+                Object rightType = visit(ctx.arithExpression());
+                if (!rightType.equals("string")) {
+                    throw new LanguageGrammarSemanticUtils.SemanticException(
+                            "Cannot add " + rightType + " to string");
+                }
+            }
+            return "string";
+        }
+
+        Object type = visit(ctx.term(0));
+        for (int i = 1; i < ctx.term().size(); i++) {
+            Object nextType = visit(ctx.term(i));
+            if (!type.equals(nextType) || type.equals("string")) {
+                throw new LanguageGrammarSemanticUtils.SemanticException(
+                        "Invalid operation between types " + type + " and " + nextType);
+            }
+        }
+        return type;
     }
 
     private void validateComparison(String leftType, String rightType, String operator) {

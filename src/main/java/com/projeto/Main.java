@@ -1,9 +1,8 @@
 package com.projeto;
 
 import java.io.IOException;
-import org.antlr.v4.runtime.CharStream;
-import org.antlr.v4.runtime.CharStreams;
-import org.antlr.v4.runtime.CommonTokenStream;
+import java.io.FileWriter;
+import org.antlr.v4.runtime.*;
 import org.antlr.v4.runtime.tree.ParseTree;
 
 public class Main {
@@ -12,7 +11,21 @@ public class Main {
         LanguageGrammarLexer lexer = new LanguageGrammarLexer(charStream);
         CommonTokenStream tokens = new CommonTokenStream(lexer);
         LanguageGrammarParser parser = new LanguageGrammarParser(tokens);
+        
+        lexer.removeErrorListeners();
+        parser.removeErrorListeners();
+        CustomErrorListener errorListener = new CustomErrorListener();
+        lexer.addErrorListener(errorListener);
+        parser.addErrorListener(errorListener);
+
         ParseTree tree = parser.program();
+
+        if (errorListener.hasErrors()) {
+            System.out.println("\nSyntax errors found:");
+            errorListener.getErrors().forEach(System.err::println);
+            return;
+        }
+
         LanguageGrammarSemantic semanticAnalyzer = new LanguageGrammarSemantic();
         boolean hasSemanticErrors = false;
 
@@ -25,15 +38,20 @@ public class Main {
             hasSemanticErrors = true;
         } catch (Exception e) {
             System.err.println("Erro inesperado durante a análise semântica: " + e.getMessage());
-            e.printStackTrace();
             hasSemanticErrors = true;
         }
 
-        // Geração de PCode apenas se não houver erros semânticos
         if (!hasSemanticErrors) {
             System.out.println("\nGerando PCode...");
             LanguageGrammarPcodeGenerator pcodeGenerator = new LanguageGrammarPcodeGenerator(semanticAnalyzer.getSymbolTable());
             String pcode = pcodeGenerator.visit(tree);
+            
+            // Save PCode to file
+            try (FileWriter writer = new FileWriter("codigo.pcode")) {
+                writer.write(pcode);
+                System.out.println("PCode no arquivo codigo.pcode");
+            }
+            
             System.out.println("PCode Gerado:");
             System.out.println(pcode);
         }
