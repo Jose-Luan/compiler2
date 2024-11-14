@@ -38,50 +38,58 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
         String identifier = ctx.ID().getText();
         String type = inferTypeFromExpression(ctx.expression());
         int address = addressCounter++;
-    
+
         semanticUtils.validateDeclaration(identifier, type, address, currentScope);
-    
+
         if (ctx.expression() != null) {
             String expressionType = getExpressionType(ctx.expression());
-            
+
             if (!type.equals(expressionType)) {
                 throw new LanguageGrammarSemanticUtils.SemanticException(
-                        "Type mismatch: cannot assign " + expressionType + " to variable '" + identifier + "' of type " + type
-                );
+                        "Type mismatch: cannot assign " + expressionType + " to variable '" + identifier + "' of type "
+                                + type);
             }
-    
+
             semanticUtils.validateAssignment(identifier, expressionType, currentScope);
             visit(ctx.expression());
         }
-    
+
         return null;
     }
-    
 
     private String inferTypeFromExpression(LanguageGrammarParser.ExpressionContext expr) {
         if (expr == null) {
-            return "number";  
+            return "number";
         }
-    
-        String exprType = getExpressionType(expr);
-        if (exprType.equals("integer") || exprType.equals("float")) {
-            return "number";  
+
+        if (expr.STRING_LITERAL() != null) {
+            return "string";
         }
-    
-        return exprType;  
+
+        if (expr.arithExpression() != null || expr.term() != null) {
+            return "number";
+        }
+
+        if (expr.condition() != null) {
+            return "boolean";
+        }
+
+        return "number";
     }
-    
 
     @Override
     public Object visitAssignment(LanguageGrammarParser.AssignmentContext ctx) {
         String identifier = ctx.ID().getText();
+
         if (!semanticUtils.symbolTable.exists(identifier)) {
             throw new LanguageGrammarSemanticUtils.SemanticException(
                     "Variable '" + identifier + "' not declared in scope '" + currentScope + "'");
         }
-        String expressionType = getExpressionType(ctx.expression());
+
+        String expressionType = getArithExpressionType(ctx.arithExpression());
         semanticUtils.validateAssignment(identifier, expressionType, currentScope);
-        return visit(ctx.expression());
+
+        return visit(ctx.arithExpression());
     }
 
     @Override
@@ -146,20 +154,21 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
         if (ctx.STRING_LITERAL() != null) {
             return "string";
         }
-
-        Object result = visit(ctx.term(0));
-
-        for (int i = 1; i < ctx.term().size(); i++) {
-            String operator = ctx.getChild(2 * i - 1).getText();
-            visit(ctx.term(i));
-            validateNumericOperation(operator);
+        if (ctx.arithExpression() != null) {
+            return visit(ctx.arithExpression());
         }
-
-        return result;
+        if (ctx.condition() != null) {
+            return visit(ctx.condition());
+        }
+        if (ctx.term() != null) {
+            return visit(ctx.term());
+        }
+        return "unknown";
     }
 
     @Override
     public Object visitTerm(LanguageGrammarParser.TermContext ctx) {
+        currentType = "number";
         Object result = visit(ctx.factor(0));
 
         for (int i = 1; i < ctx.factor().size(); i++) {
@@ -173,6 +182,7 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
 
     @Override
     public Object visitFactor(LanguageGrammarParser.FactorContext ctx) {
+        currentType = "number";
         Object result = visit(ctx.atom());
 
         if (ctx.EXP() != null) {
@@ -202,13 +212,16 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
             return "boolean";
         }
 
-        if (ctx.expression() != null) {
-            return visit(ctx.expression());
+        if (ctx.arithExpression() != null) {
+            return visit(ctx.arithExpression());
         }
 
         if (ctx.MINUS() != null) {
             Object atomType = visit(ctx.atom());
-            validateNumericOperation("-");
+            if (!isNumeric(atomType.toString())) {
+                throw new LanguageGrammarSemanticUtils.SemanticException(
+                        "Unary minus can only be applied to numeric types.");
+            }
             return atomType;
         }
 
@@ -216,8 +229,7 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
     }
 
     private void validateNumericOperation(String operator) {
-
-        if (!currentType.equals("number") && !currentType.equals("integer") && !currentType.equals("float")) {
+        if (!currentType.equals("number")) {
             throw new LanguageGrammarSemanticUtils.SemanticException(
                     "Invalid operand type for operator '" + operator + "'. Expected numeric type.");
         }
@@ -225,14 +237,13 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
 
     @Override
     public Object visitCondition(LanguageGrammarParser.ConditionContext ctx) {
+        String conditionType = getConditionType(ctx);
 
-        visit(ctx.andCondition(0));
-
-        for (int i = 1; i < ctx.andCondition().size(); i++) {
-            visit(ctx.andCondition(i));
+        if (!conditionType.equals("boolean")) {
+            throw new LanguageGrammarSemanticUtils.SemanticException(
+                    "Condition must be a boolean expression.");
         }
-
-        return "boolean";
+        return conditionType;
     }
 
     @Override
@@ -248,10 +259,10 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
 
     @Override
     public Object visitCompareCondition(LanguageGrammarParser.CompareConditionContext ctx) {
-        String leftType = getExpressionType(ctx.expression(0));
+        String leftType = getArithExpressionType(ctx.arithExpression(0));
 
         if (ctx.comparisonOp() != null) {
-            String rightType = getExpressionType(ctx.expression(1));
+            String rightType = getArithExpressionType(ctx.arithExpression(1));
             validateComparison(leftType, rightType, ctx.comparisonOp().getText());
         }
 
@@ -285,56 +296,66 @@ public class LanguageGrammarSemantic extends LanguageGrammarBaseVisitor<Object> 
         return false;
     }
 
-    private String getExpressionType(LanguageGrammarParser.ExpressionContext expr) {
-        if (expr == null) {
+    private String getConditionType(LanguageGrammarParser.ConditionContext condition) {
+        for (LanguageGrammarParser.AndConditionContext andCondition : condition.andCondition()) {
+            String andConditionType = getAndConditionType(andCondition);
+
+            if (!andConditionType.equals("boolean")) {
+                throw new LanguageGrammarSemanticUtils.SemanticException(
+                        "Expected boolean expression in condition.");
+            }
+        }
+        return "boolean";
+    }
+
+    private String getAndConditionType(LanguageGrammarParser.AndConditionContext andCondition) {
+        for (LanguageGrammarParser.CompareConditionContext compareCondition : andCondition.compareCondition()) {
+            String compareConditionType = getCompareConditionType(compareCondition);
+
+            if (!compareConditionType.equals("boolean")) {
+                throw new LanguageGrammarSemanticUtils.SemanticException(
+                        "Expected boolean expression in 'and' condition.");
+            }
+        }
+        return "boolean";
+    }
+
+    private String getCompareConditionType(LanguageGrammarParser.CompareConditionContext compareCondition) {
+        if (compareCondition.condition() != null) {
+            return getConditionType(compareCondition.condition());
+        }
+
+        String leftType = getArithExpressionType(compareCondition.arithExpression(0));
+        if (compareCondition.comparisonOp() != null) {
+            String rightType = getArithExpressionType(compareCondition.arithExpression(1));
+            validateComparison(leftType, rightType, compareCondition.comparisonOp().getText());
+        }
+        return "boolean";
+    }
+
+    private String getExpressionType(LanguageGrammarParser.ExpressionContext ctx) {
+        if (ctx == null) {
             return "number";
         }
-    
-        if (expr.STRING_LITERAL() != null) {
+
+        if (ctx.STRING_LITERAL() != null) {
             return "string";
         }
-    
-        String type = "integer";  
-        for (LanguageGrammarParser.TermContext term : expr.term()) {
-            String termType = getTermType(term);
-    
-            if (termType.equals("string")) {
-                return "string"; 
-            } else if (termType.equals("float")) {
-                type = "float";  
-            } else if (termType.equals("integer") && type.equals("integer")) {
-                type = "integer"; 
-            }
-        }
-    
-        return type;
-    }
-    
-
-    private String getTermType(LanguageGrammarParser.TermContext term) {
-        String type = "number";
-        for (LanguageGrammarParser.FactorContext factor : term.factor()) {
-            if (factor.atom() != null) {
-                String atomType = getAtomType(factor.atom());
-                if (atomType.equals("string")) {
-                    return atomType;
-                }
-            }
-        }
-        return type;
-    }
-
-    private String getAtomType(LanguageGrammarParser.AtomContext atom) {
-        if (atom.NUMBER() != null) {
+        if (ctx.arithExpression() != null) {
             return "number";
         }
-        if (atom.ID() != null) {
-            String varType = semanticUtils.getVariableType(atom.ID().getText());
-            return varType != null ? varType : "number";
+        if (ctx.condition() != null) {
+            return "boolean";
         }
-        if (atom.expression() != null) {
-            return getExpressionType(atom.expression());
+        if (ctx.term() != null) {
+            return "number";
         }
+
         return "number";
     }
+
+    private String getArithExpressionType(LanguageGrammarParser.ArithExpressionContext expr) {
+        return "number";
+    }
+
 }

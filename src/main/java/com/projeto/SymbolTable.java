@@ -58,8 +58,9 @@ public class SymbolTable {
 
     public int getAddress(String name) {
         Symbol symbol = lookup(name);
-        return symbol != null ? Integer.parseInt(symbol.getScope()) : -1;
+        return symbol != null ? symbol.getAddress() : -1;
     }
+    
 
     public void clear() {
         scopedSymbols.clear();
