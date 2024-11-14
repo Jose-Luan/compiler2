@@ -46,7 +46,7 @@ public class Main {
             LanguageGrammarPcodeGenerator pcodeGenerator = new LanguageGrammarPcodeGenerator(semanticAnalyzer.getSymbolTable());
             String pcode = pcodeGenerator.visit(tree);
             
-            // Save PCode to file
+
             try (FileWriter writer = new FileWriter("codigo.pcode")) {
                 writer.write(pcode);
                 System.out.println("PCode no arquivo codigo.pcode");
